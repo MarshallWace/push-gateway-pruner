@@ -1,3 +1,7 @@
+ca_cert.crt
+poetry.lock
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +131,5 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+.no_git/
