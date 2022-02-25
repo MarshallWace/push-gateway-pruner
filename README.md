@@ -32,3 +32,14 @@ Build with CA cert:
 ```
 docker build --build-arg CA_CERT_PATH=<YOUR PATH> .
 ```
+
+To test docker locally:
+```
+# Install pushgateway and run (from https://github.com/prometheus/pushgateway)
+docker pull prom/pushgateway
+docker run -d -p 9091:9091 prom/pushgateway
+
+# Start pruner
+docker run --net='host' <your image>
+
+```
