@@ -14,6 +14,11 @@ Features:
 $ docker run -it ghcr.io/marshallwace/push-gateway-pruner --pushgateway_url <YOUR URL> --prune_interval_seconds <YOUR VALUE>
 ```
 
+# Update dependencies
+Poetry can automatically fetch latest versions of dependencies and update lock file. 
+```
+poetry update
+```
 # Local Dev
 Setup:
 ```
