@@ -1,7 +1,27 @@
 name: Publish Docker
 on: push
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.7.4'
+      - name: Install poetry
+        uses: abatilo/actions-poetry@v2.0.0
+        with:
+          poetry-version: 1.1.13
+      - name: Install dependencies
+        run: |
+          make setup
+      - name: Test
+        run: |
+          make test
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
