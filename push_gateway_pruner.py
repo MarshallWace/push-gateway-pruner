@@ -4,6 +4,8 @@ import base64
 import sys
 import threading
 import urllib.parse
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 from typing import Generator, Dict
 from datetime import datetime
 
@@ -14,75 +16,68 @@ from prometheus_client.samples import Sample
 logger = logging.getLogger()
 
 
-@click.command()
-@click.option(
-    "--prune_interval_seconds",
-    default=600,
-    type=int,
-    help="How often to start the pruning job in seconds. Default is 600.",
-)
-@click.option(
-    "--pushgateway_url",
-    default="http://localhost:9091/",
-    type=str,
-    help="URL for your pushgateway instance (without /metrics postfix). Default is http://localhost:9091/",
-)
-@click.option(
-    "--prune_threshold_seconds",
-    default=600,
-    type=int,
-    help="Number of seconds since <prune_metric_name>'s value after which to prune a sample. Default is 600.",
-)
-@click.option(
-    "--get_request_timeout",
-    default=2000,
-    type=int,
-    help="Timeout in seconds for the Get request to <pushgateway url>/metrics. Default is 2000.",
-)
-@click.option(
-    "--prune_metric_name",
-    default="push_time_seconds",
-    type=str,
-    help="The name of the metric which is used as each group's start time. Default is 'push_time_seconds'.",
-)
 def start_interval(
     prune_interval_seconds,
     pushgateway_url,
     prune_threshold_seconds,
-    get_request_timeout,
+    requests_timeout,
     prune_metric_name,
 ):
-    threading.Timer(prune_interval_seconds, start_interval).start()
-    prune(
-        pushgateway_url, prune_threshold_seconds, get_request_timeout, prune_metric_name
+    threading.Timer(
+        prune_interval_seconds,
+        start_interval,
+        [
+            prune_interval_seconds,
+            pushgateway_url,
+            prune_threshold_seconds,
+            requests_timeout,
+            prune_metric_name,
+        ],
+    ).start()
+    prune(pushgateway_url, prune_threshold_seconds, requests_timeout, prune_metric_name)
+
+
+def configure_requests() -> requests.Session:
+    # Mount HTTPAdapter to add retries for all requests.
+    retry_strategy = Retry(
+        total=3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "DELETE"],
+        backoff_factor=1,  # sleep between retries
     )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    http = requests.Session()
+    http.mount("https://", adapter)
+    http.mount("http://", adapter)
+    assert_status_hook = lambda response, *args, **kwargs: response.raise_for_status()
+    http.hooks["response"] = [assert_status_hook]
+    return http
 
 
 def prune(
     pushgateway_url: str,
     prune_threshold_seconds: int,
-    get_request_timeout: int,
+    requests_timeout: int,
     prune_metric_name: str,
 ):
     logger.info(
         f"Starting pruning for {pushgateway_url} with prune threshold = {prune_threshold_seconds} seconds"
     )
-    raw_metrics = get_metrics(pushgateway_url, get_request_timeout)
+    http = configure_requests()
+    raw_metrics = get_metrics(pushgateway_url, requests_timeout, http)
     metrics = parse_raw_metrics(raw_metrics)
     filtered_samples = filter_metrics(
         metrics, prune_metric_name, prune_threshold_seconds
     )
-    delete_old_samples(filtered_samples, pushgateway_url)
+    delete_old_samples(filtered_samples, pushgateway_url, requests_timeout, http)
     logger.info(f"Done with push_gateway_pruner.")
 
 
-def get_metrics(pushgateway_url: str, get_request_timeout: int) -> str:
-    url = urllib.parse.urljoin(pushgateway_url, 'metrics')
-    res = requests.get(url, timeout=get_request_timeout)
-    if res.status_code != 200:
-        raise ValueError(
-            f"Get {url} returned unexpected status code {res.status_code}"
-        )
+def get_metrics(
+    pushgateway_url: str, requests_timeout: int, http: requests.Session
+) -> str:
+    url = urllib.parse.urljoin(pushgateway_url, "metrics")
+    res = http.get(url, timeout=requests_timeout)
     return res.text
 
 
@@ -103,10 +98,15 @@ def filter_metrics(
                     yield sample
 
 
-def delete_old_samples(samples: Generator[Sample, None, None], pushgateway_url: str):
+def delete_old_samples(
+    samples: Generator[Sample, None, None],
+    pushgateway_url: str,
+    requests_timeout: int,
+    http: requests.Session,
+):
     for sample in samples:
         url = build_url_from_labels(sample.labels, pushgateway_url)
-        requests.delete(url)
+        http.delete(url, timeout=requests_timeout)
         logger.debug(f"Sent delete request for {url}")
 
 
@@ -138,15 +138,75 @@ def build_url_from_labels(labels: Dict[str, str], pushgateway_url: str) -> str:
     return url
 
 
+@click.command()
+@click.option(
+    "--prune_interval_seconds",
+    default=600,
+    type=int,
+    help="How often to start the pruning job in seconds. Default is 600.",
+)
+@click.option(
+    "--pushgateway_url",
+    default="http://localhost:9091/",
+    type=str,
+    help="URL for your pushgateway instance (without /metrics postfix). Default is http://localhost:9091/",
+)
+@click.option(
+    "--prune_threshold_seconds",
+    default=600,
+    type=int,
+    help="Number of seconds since <prune_metric_name>'s value after which to prune a sample. Default is 600.",
+)
+@click.option(
+    "--requests_timeout",
+    default=10,
+    type=int,
+    help="Timeout in seconds for the Get request to <pushgateway url>/metrics. Default is 10.",
+)
+@click.option(
+    "--prune_metric_name",
+    default="push_time_seconds",
+    type=str,
+    help="The name of the metric which is used as each group's start time. Default is 'push_time_seconds'.",
+)
+@click.option(
+    "--logging_level",
+    default="INFO",
+    type=str,
+    help="Logging Level",
+)
+def main(
+    prune_interval_seconds,
+    pushgateway_url,
+    prune_threshold_seconds,
+    requests_timeout,
+    prune_metric_name,
+    logging_level,
+):
+    try:
+        logger.setLevel(logging_level)
+
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+        start_interval(
+            prune_interval_seconds,
+            pushgateway_url,
+            prune_threshold_seconds,
+            requests_timeout,
+            prune_metric_name,
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Error for push-gateway-pruner pruning pushgateway at {pushgateway_url}", e
+        )
+
+
 if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    start_interval()
+    main()
