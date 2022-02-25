@@ -1,13 +1,15 @@
-FROM python:3.7.4-alpine3.10
+FROM python:3.8.12-alpine3.15
 
 LABEL org.opencontainers.image.source https://github.com/MarshallWace/push-gateway-pruner
 
-RUN apk add --no-cache git libffi-dev gcc musl-dev
-
-# Copy ca cert files for SSL. dummyfile as a hack for copy if file exists
+# Copy ca cert files for SSL. dummyfile as a hack for copy if file exists.
+# CA_CERT_PATH must start with / (a . is automatically prefixed to pull from curr workdir)
 ARG CA_CERT_PATH
-COPY dummyfile .$CA_CERT_PATH* /
-ENV REQUESTS_CA_BUNDLE=${CA_CERT_PATH:+$CA_CERT_PATH}
+COPY dummyfile .$CA_CERT_PATH* /usr/local/share/ca-certificates/
+ENV REQUESTS_CA_BUNDLE=${CA_CERT_PATH:+/usr/local/share/ca-certificates$CA_CERT_PATH}
+RUN update-ca-certificates
+
+RUN apk add --no-cache git libffi-dev gcc musl-dev
 
 ENV PYTHONFAULTHANDLER=1 \
   PYTHONUNBUFFERED=1 \

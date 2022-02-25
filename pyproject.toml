@@ -5,7 +5,7 @@ description = "Prunes Prometheus push gateway for groupings older than a set int
 authors = ["Vincent Tan <v.tan@mwam.com>"]
 
 [tool.poetry.dependencies]
-python = "3.7.4"
+python = "3.8.12"
 prometheus-client = "^0.13.1"
 requests = "^2.27.1"
 click = "^8.0.4"
