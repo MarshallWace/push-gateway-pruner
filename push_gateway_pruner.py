@@ -187,7 +187,7 @@ def main(
         logger.setLevel(logging_level)
 
         handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(logging.DEBUG)
+        handler.setLevel(logging_level)
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
@@ -207,6 +207,8 @@ def main(
             f"Error for push-gateway-pruner pruning pushgateway at {pushgateway_url}", e
         )
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
