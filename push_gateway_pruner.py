@@ -77,10 +77,11 @@ def prune(
 
 
 def get_metrics(pushgateway_url: str, get_request_timeout: int) -> str:
-    res = requests.get(pushgateway_url + "metrics", timeout=get_request_timeout)
+    url = urllib.parse.urljoin(pushgateway_url, 'metrics')
+    res = requests.get(url, timeout=get_request_timeout)
     if res.status_code != 200:
         raise ValueError(
-            f"Get /metrics returned unexpected status code {res.status_code}"
+            f"Get {url} returned unexpected status code {res.status_code}"
         )
     return res.text
 
