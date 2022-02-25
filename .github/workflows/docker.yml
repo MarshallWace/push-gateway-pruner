@@ -11,15 +11,16 @@ jobs:
         with:
           python-version: '3.8.12'
       - name: Install poetry
-        uses: abatilo/actions-poetry@v2.0.0
-        with:
-          poetry-version: 1.1.13
-      - name: Install dependencies
         run: |
-          make setup
+          python -m pip install --upgrade pip
+          python -m pip install poetry==1.1.13
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m poetry install
       - name: Test
         run: |
-          make test
+          python -m poetry run python -m unittest tests/test_push_gateway_pruner.py
   build:
     needs: test
     runs-on: ubuntu-latest
